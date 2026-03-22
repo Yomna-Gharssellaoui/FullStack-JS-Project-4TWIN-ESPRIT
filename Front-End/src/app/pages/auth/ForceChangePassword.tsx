@@ -14,7 +14,6 @@ import {
 } from "@/app/components/ui/card";
 
 import { AuthApi } from "@/shared/lib/services/auth";
-import { BusinessesApi } from "@/shared/lib/services/businesses";
 
 function isValidPassword(p: string) {
   return p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p);
@@ -24,26 +23,6 @@ export default function ForceChangePassword() {
   const navigate = useNavigate();
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const goToSetupWithLatestBusiness = async () => {
-    const list: any[] = await BusinessesApi.listMine();
-
-    if (!list || list.length === 0) {
-      navigate("/dashboard", { replace: true });
-      return;
-    }
-
-    // Choose the latest business as the active one
-    const business = list[list.length - 1];
-
-    localStorage.setItem("current_business_id", String(business.id));
-    localStorage.setItem("pending_setup_business_id", String(business.id));
-
-    // Notify context/components
-    window.dispatchEvent(new Event("business-changed"));
-
-    navigate("/dashboard/company/setup", { replace: true });
-  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,21 +36,17 @@ export default function ForceChangePassword() {
 
     try {
       setLoading(true);
-
       await AuthApi.changePasswordFirst(newPassword);
-
       toast.success("Password updated!");
-      await goToSetupWithLatestBusiness();
+      // ── Redirect to security questions setup ──
+      navigate("/auth/setup-security-questions", { replace: true });
     } catch (err: any) {
       const msg = err?.message || "Error";
-
-      // If backend says already changed => still continue flow
       if (String(msg).toLowerCase().includes("not required")) {
         toast.info("Password already updated. Continuing...");
-        await goToSetupWithLatestBusiness();
+        navigate("/auth/setup-security-questions", { replace: true });
         return;
       }
-
       toast.error("Failed", { description: msg });
     } finally {
       setLoading(false);
@@ -86,7 +61,6 @@ export default function ForceChangePassword() {
           Minimum 8 characters, 1 uppercase, 1 lowercase, 1 number.
         </CardDescription>
       </CardHeader>
-
       <CardContent>
         <form onSubmit={submit} className="space-y-4" noValidate>
           <div className="space-y-2">
@@ -100,7 +74,6 @@ export default function ForceChangePassword() {
               required
             />
           </div>
-
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Saving..." : "Continue"}
           </Button>

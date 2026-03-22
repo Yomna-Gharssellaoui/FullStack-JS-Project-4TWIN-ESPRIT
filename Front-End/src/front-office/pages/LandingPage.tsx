@@ -2,7 +2,7 @@ import { NavigationBar } from "../organisms/NavigationBar";
 import { HeroSection } from "../organisms/HeroSection";
 import { FeaturesSection } from "../organisms/FeaturesSection";
 import { PricingSection } from "../organisms/PricingSection";
-import { SignUpSection } from "../organisms/SignUpSection";
+import { RegisterSection } from "../organisms/RegisterSection";
 import { ContactSection } from "../organisms/ContactSection";
 import { FooterSection } from "../organisms/FooterSection";
 
@@ -13,7 +13,7 @@ export function LandingPage() {
       <HeroSection />
       <FeaturesSection />
       <PricingSection />
-      <SignUpSection />
+      <RegisterSection />
       <ContactSection />
       <FooterSection />
     </div>

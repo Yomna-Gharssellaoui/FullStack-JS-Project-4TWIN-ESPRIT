@@ -6,6 +6,8 @@ import { UserEntity } from "./entities/user.entity";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
 import { toIso } from "../../common/api-mapper";
+import * as bcrypt from "bcrypt";
+
 
 @Injectable()
 export class UsersService {
@@ -41,4 +43,12 @@ export class UsersService {
     if (!res.affected) throw new NotFoundException("User not found");
     return { deleted: true, id };
   }
+async findByEmail(email: string) {
+  return this.repo.findOne({ where: { email: email.toLowerCase().trim() } });
+}
+
+async updatePassword(id: string, newPassword: string) {
+  const hash = await bcrypt.hash(newPassword, 10);
+  await this.repo.update(id, { passwordHash: hash });
+}
 }

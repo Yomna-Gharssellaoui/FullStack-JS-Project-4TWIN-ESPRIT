@@ -48,6 +48,14 @@ export class UserEntity {
   @Column({ type: "timestamptz", nullable: true })
   lockedUntil!: Date | null;
 
+  //@CreateDateColumn()
+  //createdAt!: Date;
+  // ────────────────────────────────────────────────
+  //        security questions
+  // ────────────────────────────────────────────────
+  //@Column({ type: "jsonb", nullable: true, default: null })
+  //securityQuestions!: { question: string; answerHash: string }[] | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

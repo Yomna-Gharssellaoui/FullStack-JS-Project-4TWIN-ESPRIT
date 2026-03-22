@@ -1,9 +1,16 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/app/components/ui/card";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { useAuth } from "@/shared/contexts/AuthContext";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
-import { Textarea } from "@/app/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/app/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -11,454 +18,450 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/app/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
-import { Separator } from "@/app/components/ui/separator";
-import { Save, Building2, User, Bell, Shield, CreditCard } from "lucide-react";
-import { currentBusiness, currentUser } from "@/app/lib/mockData";
-import { toast } from "sonner";
 
+const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:3000/api";
+
+function authHeaders() {
+  const token = localStorage.getItem("access_token") ?? "";
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function apiPatch(path: string, body: object) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Request failed");
+  return data;
+}
+
+async function apiPost(path: string, body: object) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Request failed");
+  return data;
+}
+
+async function apiGet(path: string) {
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Request failed");
+  return data;
+}
+
+// ─────────────────────────────────────────────────────────
+// PASSWORD RULES
+// ─────────────────────────────────────────────────────────
+function PasswordRules({ password }: { password: string }) {
+  const rules = [
+    { label: "At least 8 characters", ok: password.length >= 8 },
+    { label: "One uppercase letter", ok: /[A-Z]/.test(password) },
+    { label: "One lowercase letter", ok: /[a-z]/.test(password) },
+    { label: "One number", ok: /[0-9]/.test(password) },
+  ];
+  return (
+    <ul className="mt-1 space-y-1">
+      {rules.map((r) => (
+        <li key={r.label} className={`text-xs flex items-center gap-1.5 ${r.ok ? "text-green-500" : "text-muted-foreground"}`}>
+          <span>{r.ok ? "✓" : "○"}</span>{r.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// PRESET SECURITY QUESTIONS
+// ─────────────────────────────────────────────────────────
+const PRESET_QUESTIONS = [
+  "What was the name of your first pet?",
+  "What city were you born in?",
+  "What is your mother's maiden name?",
+  "What was the name of your elementary school?",
+  "What was the make of your first car?",
+  "What is the middle name of your oldest sibling?",
+  "What street did you grow up on?",
+  "What was your childhood nickname?",
+];
+
+type Tab = "profile" | "password" | "security" | "account";
+
+// ─────────────────────────────────────────────────────────
+// MAIN SETTINGS PAGE
+// ─────────────────────────────────────────────────────────
 export function Settings() {
-  const [businessData, setBusinessData] = useState(currentBusiness);
-  const [userData, setUserData] = useState(currentUser);
+  const { user } = useAuth();
+  const [tab, setTab] = useState<Tab>("profile");
 
-  const handleSaveBusinessSettings = () => {
-    toast.success("Business settings saved successfully");
-  };
-
-  const handleSaveProfileSettings = () => {
-    toast.success("Profile settings saved successfully");
-  };
+  const tabs: { id: Tab; label: string; icon: string }[] = [
+    { id: "profile", label: "Personal Info", icon: "👤" },
+    { id: "password", label: "Change Password", icon: "🔒" },
+    { id: "security", label: "Security Questions", icon: "🛡️" },
+    { id: "account", label: "Account Status", icon: "ℹ️" },
+  ];
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      {/* Page header */}
+    <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Manage your business and account settings
+        <h1 className="text-2xl font-bold">Profile Settings</h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          Manage your personal information and account security.
         </p>
       </div>
 
-      <Tabs defaultValue="business" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="business">
-            <Building2 className="h-4 w-4 mr-2" />
-            Business
-          </TabsTrigger>
-          <TabsTrigger value="profile">
-            <User className="h-4 w-4 mr-2" />
-            Profile
-          </TabsTrigger>
-          <TabsTrigger value="notifications">
-            <Bell className="h-4 w-4 mr-2" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="security">
-            <Shield className="h-4 w-4 mr-2" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="billing">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Billing
-          </TabsTrigger>
-        </TabsList>
+      {/* Tab bar */}
+      <div className="flex gap-2 border-b pb-0 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              tab === t.id
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* Business Settings */}
-        <TabsContent value="business" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Business Information</CardTitle>
-              <CardDescription>
-                Update your business details and branding
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="businessName">Business Name</Label>
-                <Input
-                  id="businessName"
-                  value={businessData.name}
-                  onChange={(e) =>
-                    setBusinessData({ ...businessData, name: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="businessEmail">Email</Label>
-                <Input
-                  id="businessEmail"
-                  type="email"
-                  value={businessData.email}
-                  onChange={(e) =>
-                    setBusinessData({ ...businessData, email: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="businessPhone">Phone</Label>
-                <Input
-                  id="businessPhone"
-                  value={businessData.phone}
-                  onChange={(e) =>
-                    setBusinessData({ ...businessData, phone: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="businessAddress">Address</Label>
-                <Textarea
-                  id="businessAddress"
-                  value={businessData.address}
-                  onChange={(e) =>
-                    setBusinessData({ ...businessData, address: e.target.value })
-                  }
-                  rows={3}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="taxId">Tax ID</Label>
-                  <Input
-                    id="taxId"
-                    value={businessData.taxId}
-                    onChange={(e) =>
-                      setBusinessData({ ...businessData, taxId: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="taxRate">Tax Rate (%)</Label>
-                  <Input
-                    id="taxRate"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={businessData.taxRate}
-                    onChange={(e) =>
-                      setBusinessData({
-                        ...businessData,
-                        taxRate: parseFloat(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="currency">Currency</Label>
-                <Select
-                  value={businessData.currency}
-                  onValueChange={(value) =>
-                    setBusinessData({ ...businessData, currency: value })
-                  }
-                >
-                  <SelectTrigger id="currency">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="TND">TND - Tunisian Dinar</SelectItem>
-                    <SelectItem value="USD">USD - US Dollar</SelectItem>
-                    <SelectItem value="EUR">EUR - Euro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
-              <Button onClick={handleSaveBusinessSettings}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Invoice Settings</CardTitle>
-              <CardDescription>
-                Customize your invoice templates and numbering
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="invoicePrefix">Invoice Number Prefix</Label>
-                <Input id="invoicePrefix" defaultValue="INV-" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="nextInvoiceNumber">Next Invoice Number</Label>
-                <Input id="nextInvoiceNumber" type="number" defaultValue="006" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="paymentTerms">Default Payment Terms (Days)</Label>
-                <Input id="paymentTerms" type="number" defaultValue="30" />
-              </div>
-
-              <Separator />
-
-              <Button onClick={handleSaveBusinessSettings}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Profile Settings */}
-        <TabsContent value="profile" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Personal Information</CardTitle>
-              <CardDescription>Update your personal details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="userName">Full Name</Label>
-                <Input
-                  id="userName"
-                  value={userData.name}
-                  onChange={(e) => setUserData({ ...userData, name: e.target.value })}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="userEmail">Email</Label>
-                <Input
-                  id="userEmail"
-                  type="email"
-                  value={userData.email}
-                  onChange={(e) =>
-                    setUserData({ ...userData, email: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="userRole">Role</Label>
-                <Input id="userRole" value={userData.role.replace("_", " ")} disabled />
-              </div>
-
-              <Separator />
-
-              <Button onClick={handleSaveProfileSettings}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Change Password</CardTitle>
-              <CardDescription>Update your account password</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="currentPassword">Current Password</Label>
-                <Input id="currentPassword" type="password" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">New Password</Label>
-                <Input id="newPassword" type="password" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                <Input id="confirmPassword" type="password" />
-              </div>
-
-              <Separator />
-
-              <Button onClick={() => toast.success("Password updated successfully")}>
-                Update Password
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Notifications Settings */}
-        <TabsContent value="notifications" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Email Notifications</CardTitle>
-              <CardDescription>
-                Manage your email notification preferences
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Invoice Payments</p>
-                  <p className="text-sm text-gray-500">
-                    Get notified when an invoice is paid
-                  </p>
-                </div>
-                <input type="checkbox" defaultChecked className="h-4 w-4" />
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Overdue Invoices</p>
-                  <p className="text-sm text-gray-500">
-                    Get notified when invoices are overdue
-                  </p>
-                </div>
-                <input type="checkbox" defaultChecked className="h-4 w-4" />
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Expense Approvals</p>
-                  <p className="text-sm text-gray-500">
-                    Get notified when expenses need approval
-                  </p>
-                </div>
-                <input type="checkbox" defaultChecked className="h-4 w-4" />
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Team Activity</p>
-                  <p className="text-sm text-gray-500">
-                    Get notified about team member activities
-                  </p>
-                </div>
-                <input type="checkbox" className="h-4 w-4" />
-              </div>
-
-              <Separator />
-
-              <Button onClick={() => toast.success("Notification preferences saved")}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Preferences
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Security Settings */}
-        <TabsContent value="security" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Two-Factor Authentication</CardTitle>
-              <CardDescription>
-                Add an extra layer of security to your account
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div>
-                  <p className="font-medium">Two-Factor Authentication</p>
-                  <p className="text-sm text-gray-500">Not enabled</p>
-                </div>
-                <Button variant="outline">Enable</Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Active Sessions</CardTitle>
-              <CardDescription>Manage your active sessions</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-4 border rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Current Session</p>
-                    <p className="text-sm text-gray-500">
-                      Tunisia · Last active now
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    Revoke
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Billing Settings */}
-        <TabsContent value="billing" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Subscription Plan</CardTitle>
-              <CardDescription>Manage your subscription and billing</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-6 border-2 border-indigo-200 bg-indigo-50 rounded-lg">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-xl font-bold">Professional Plan</h3>
-                    <p className="text-sm text-gray-600">Unlimited invoices and expenses</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold">99 TND</p>
-                    <p className="text-sm text-gray-600">/month</p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button>Upgrade Plan</Button>
-                  <Button variant="outline">Cancel Subscription</Button>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <h4 className="font-semibold">Plan Features</h4>
-                <ul className="space-y-2 text-sm text-gray-600">
-                  <li>✓ Unlimited invoices</li>
-                  <li>✓ Unlimited expenses</li>
-                  <li>✓ Unlimited clients</li>
-                  <li>✓ Team collaboration (up to 10 members)</li>
-                  <li>✓ Advanced reporting</li>
-                  <li>✓ Priority support</li>
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Payment Method</CardTitle>
-              <CardDescription>Manage your payment methods</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-4 border rounded-lg flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <CreditCard className="h-8 w-8 text-gray-400" />
-                  <div>
-                    <p className="font-medium">•••• •••• •••• 4242</p>
-                    <p className="text-sm text-gray-500">Expires 12/2026</p>
-                  </div>
-                </div>
-                <Button variant="outline" size="sm">
-                  Update
-                </Button>
-              </div>
-              <Button variant="outline">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Payment Method
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Tab content */}
+      {tab === "profile" && <ProfileSection />}
+      {tab === "password" && <PasswordSection />}
+      {tab === "security" && <SecurityQuestionsSection />}
+      {tab === "account" && <AccountStatusSection user={user} />}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// SECTION 1: Personal Info
+// ─────────────────────────────────────────────────────────
+function ProfileSection() {
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.name ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!name.trim()) return toast.error("Name cannot be empty.");
+    setLoading(true);
+    try {
+      await apiPatch(`/users/${user?.id}`, { name: name.trim() });
+      toast.success("Profile updated successfully!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update profile.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Personal Information</CardTitle>
+        <CardDescription>Update your name and view your email address.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {/* Avatar initial */}
+          <div className="flex items-center gap-4 mb-2">
+            <div className="w-16 h-16 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-2xl font-bold">
+              {name?.charAt(0)?.toUpperCase() ?? "?"}
+            </div>
+            <div>
+              <p className="font-medium">{name}</p>
+              <p className="text-sm text-muted-foreground">{user?.role?.replace(/_/g, " ")}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="name">Full Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your full name"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email Address</Label>
+            <Input
+              id="email"
+              value={email}
+              disabled
+              className="bg-muted cursor-not-allowed"
+            />
+            <p className="text-xs text-muted-foreground">Email cannot be changed. Contact an admin if needed.</p>
+          </div>
+
+          <Button type="submit" disabled={loading} aria-busy={loading}>
+            {loading ? "Saving..." : "Save Changes"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// SECTION 2: Change Password
+// ─────────────────────────────────────────────────────────
+function PasswordSection() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!currentPassword) return toast.error("Please enter your current password.");
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
+      return toast.error("New password does not meet requirements.");
+    }
+    if (newPassword !== confirmPassword) return toast.error("Passwords do not match.");
+    setLoading(true);
+    try {
+      await apiPost("/auth/change-password", {
+        currentPassword,
+        newPassword,
+      });
+      toast.success("Password changed successfully!");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to change password.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Change Password</CardTitle>
+        <CardDescription>Update your password. You'll need your current password to confirm.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <div className="space-y-2">
+            <Label htmlFor="current-password">Current Password</Label>
+            <Input
+              id="current-password"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="new-password">New Password</Label>
+            <Input
+              id="new-password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+            <PasswordRules password={newPassword} />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">Confirm New Password</Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+            {confirmPassword && newPassword !== confirmPassword && (
+              <p className="text-xs text-red-500">Passwords do not match.</p>
+            )}
+          </div>
+
+          <Button type="submit" disabled={loading} aria-busy={loading}>
+            {loading ? "Updating..." : "Update Password"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// SECTION 3: Security Questions
+// ─────────────────────────────────────────────────────────
+function SecurityQuestionsSection() {
+  const [selected, setSelected] = useState(["", "", ""]);
+  const [answers, setAnswers] = useState(["", "", ""]);
+  const [loading, setLoading] = useState(false);
+  const [hasExisting, setHasExisting] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    apiGet("/security-questions/status")
+      .then((data) => setHasExisting(data.hasQuestions))
+      .catch(() => {})
+      .finally(() => setChecking(false));
+  }, []);
+
+  function availableFor(index: number) {
+    return PRESET_QUESTIONS.filter(
+      (q) => q === selected[index] || !selected.includes(q)
+    );
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (selected.some((q) => !q)) return toast.error("Please select all 3 questions.");
+    if (answers.some((a) => !a.trim())) return toast.error("Please answer all 3 questions.");
+    if (new Set(selected).size < 3) return toast.error("Please choose 3 different questions.");
+
+    setLoading(true);
+    try {
+      await apiPost("/security-questions/setup", {
+        questions: selected.map((q, i) => ({ question: q, answer: answers[i] })),
+      });
+      toast.success(hasExisting ? "Security questions updated!" : "Security questions saved!");
+      setHasExisting(true);
+      setAnswers(["", "", ""]);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save questions.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (checking) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-muted-foreground text-sm">
+          Loading...
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Security Questions</CardTitle>
+        <CardDescription>
+          {hasExisting
+            ? "Your security questions are set up. You can update them below."
+            : "Set up 3 security questions to help recover your account if you forget your password."}
+        </CardDescription>
+        {hasExisting && (
+          <div className="flex items-center gap-2 text-green-600 text-sm mt-1">
+            <span>✓</span> Security questions are active
+          </div>
+        )}
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="space-y-2">
+              <Label>Question {i + 1}</Label>
+              <Select
+                value={selected[i]}
+                onValueChange={(val) => {
+                  const arr = [...selected];
+                  arr[i] = val;
+                  setSelected(arr);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a question..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableFor(i).map((q) => (
+                    <SelectItem key={q} value={q}>{q}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                type="text"
+                placeholder="Your answer"
+                value={answers[i]}
+                onChange={(e) => {
+                  const arr = [...answers];
+                  arr[i] = e.target.value;
+                  setAnswers(arr);
+                }}
+                disabled={!selected[i]}
+                required
+              />
+            </div>
+          ))}
+
+          <Button type="submit" disabled={loading} aria-busy={loading}>
+            {loading ? "Saving..." : hasExisting ? "Update Questions" : "Save Questions"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// SECTION 4: Account Status
+// ─────────────────────────────────────────────────────────
+function AccountStatusSection({ user }: { user: any }) {
+  const statusItems = [
+    { label: "User ID", value: user?.id ?? "—" },
+    { label: "Role", value: user?.role?.replace(/_/g, " ") ?? "—" },
+    { label: "Business ID", value: user?.businessId ?? "No business linked" },
+    {
+      label: "Account Status",
+      value: user?.lockedUntil && new Date(user.lockedUntil) > new Date()
+        ? `🔒 Locked until ${new Date(user.lockedUntil).toLocaleTimeString()}`
+        : "✅ Active",
+    },
+    {
+      label: "Password Change Required",
+      value: user?.mustChangePassword ? "⚠️ Yes" : "✅ No",
+    },
+    {
+      label: "Member Since",
+      value: user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : "—",
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Account Status</CardTitle>
+        <CardDescription>Read-only overview of your account details.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y">
+          {statusItems.map((item) => (
+            <div key={item.label} className="flex justify-between py-3 text-sm">
+              <span className="text-muted-foreground font-medium">{item.label}</span>
+              <span className="text-right font-mono text-xs max-w-[60%] truncate">{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

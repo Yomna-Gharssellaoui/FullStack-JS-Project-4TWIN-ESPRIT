@@ -18,6 +18,7 @@ const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
 const user_entity_1 = require("./entities/user.entity");
 const api_mapper_1 = require("../../common/api-mapper");
+const bcrypt = require("bcrypt");
 let UsersService = class UsersService {
     constructor(repo) {
         this.repo = repo;
@@ -50,6 +51,13 @@ let UsersService = class UsersService {
         if (!res.affected)
             throw new common_1.NotFoundException("User not found");
         return { deleted: true, id };
+    }
+    async findByEmail(email) {
+        return this.repo.findOne({ where: { email: email.toLowerCase().trim() } });
+    }
+    async updatePassword(id, newPassword) {
+        const hash = await bcrypt.hash(newPassword, 10);
+        await this.repo.update(id, { passwordHash: hash });
     }
 };
 exports.UsersService = UsersService;
