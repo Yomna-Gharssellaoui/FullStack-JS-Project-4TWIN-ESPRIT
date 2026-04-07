@@ -16,64 +16,55 @@ exports.CommunicationController = exports.CommunicationService = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
+const jwt_auth_guard_1 = require("../auth/jwt-auth.guard");
 const channel_entity_1 = require("./channel.entity");
 const message_entity_1 = require("./message.entity");
+const user_entity_1 = require("../users/entities/user.entity");
 const ADMIN_ROLES = ['platform_admin', 'business_owner', 'business_admin'];
 let CommunicationService = class CommunicationService {
-    constructor(channels, messages) {
+    constructor(channels, messages, users) {
         this.channels = channels;
         this.messages = messages;
+        this.users = users;
     }
-    async getChannels(businessId, userId) {
-        const all = await this.channels.find({
-            where: { businessId },
-            order: { createdAt: 'ASC' },
-        });
-        return all.filter((ch) => ch.type === 'public' ||
-            ch.memberIds.includes(userId));
-    }
-    async createChannel(businessId, userId, role, dto) {
-        if (!ADMIN_ROLES.includes(role)) {
-            throw new common_1.ForbiddenException('Only admins and business owners can create channels.');
+    async getAllPlatformReclamations(role) {
+        if (role !== 'platform_admin') {
+            throw new common_1.ForbiddenException("Action réservée à l'administration.");
         }
-        const memberIds = Array.from(new Set([userId, ...(dto.memberIds ?? [])]));
-        const channel = this.channels.create({
-            businessId,
-            name: dto.name.trim().toLowerCase().replace(/\s+/g, '-'),
-            description: dto.description,
-            type: dto.type ?? 'public',
-            memberIds: dto.type === 'public' ? [] : memberIds,
+        return this.channels.find({
+            where: { name: 'reclamation' },
+            order: { createdAt: 'DESC' },
         });
-        return this.channels.save(channel);
     }
-    async seedDefaultChannels(businessId) {
-        const defaults = ['general', 'announcements', 'random'];
-        for (const name of defaults) {
-            const exists = await this.channels.findOne({ where: { businessId, name } });
-            if (!exists) {
-                await this.channels.save(this.channels.create({
-                    businessId,
-                    name,
-                    type: 'public',
-                    isDefault: true,
-                    memberIds: [],
-                }));
+    async getOrCreateReclamationChannel(businessId, userId) {
+        console.log(`[Service] Vérification du canal pour Business: ${businessId}`);
+        let channel = await this.channels.findOne({
+            where: { businessId, name: 'reclamation' }
+        });
+        if (channel) {
+            if (!channel.memberIds.includes(userId)) {
+                channel.memberIds = Array.from(new Set([...channel.memberIds, userId]));
+                channel = await this.channels.save(channel);
             }
+            return channel;
         }
-    }
-    async getMessages(businessId, channelId, userId, limit = 50, before) {
-        const channel = await this.channels.findOne({
-            where: { id: channelId, businessId },
+        const admins = await this.users.find({
+            where: { businessId, role: (0, typeorm_2.In)(['business_owner', 'business_admin']) },
         });
-        if (!channel)
-            throw new common_1.NotFoundException('Channel not found');
-        if (channel.type !== 'public' && !channel.memberIds.includes(userId)) {
-            throw new common_1.ForbiddenException('You are not a member of this channel.');
-        }
+        const memberIds = Array.from(new Set([userId, ...admins.map((a) => a.id)]));
+        const newChannel = this.channels.create({
+            businessId,
+            name: 'reclamation',
+            description: 'Support technique direct',
+            type: 'private',
+            memberIds,
+        });
+        return this.channels.save(newChannel);
+    }
+    async getMessages(channelId, limit = 50, before) {
         const query = this.messages
             .createQueryBuilder('m')
             .where('m.channelId = :channelId', { channelId })
-            .andWhere('m.businessId = :businessId', { businessId })
             .orderBy('m.createdAt', 'DESC')
             .take(limit);
         if (before) {
@@ -82,45 +73,14 @@ let CommunicationService = class CommunicationService {
         const msgs = await query.getMany();
         return msgs.reverse();
     }
-    async inviteMembers(businessId, channelId, adminRole, memberIds) {
-        if (!ADMIN_ROLES.includes(adminRole)) {
-            throw new common_1.ForbiddenException('Only admins can invite members.');
-        }
-        const channel = await this.channels.findOne({
-            where: { id: channelId, businessId },
-        });
-        if (!channel)
-            throw new common_1.NotFoundException('Channel not found');
-        if (channel.type === 'public') {
-            throw new common_1.ForbiddenException('Public channels are open to all.');
-        }
-        channel.memberIds = Array.from(new Set([...channel.memberIds, ...memberIds]));
-        return this.channels.save(channel);
-    }
-    async removeMember(businessId, channelId, adminRole, memberId) {
-        if (!ADMIN_ROLES.includes(adminRole)) {
-            throw new common_1.ForbiddenException('Only admins can remove members.');
-        }
-        const channel = await this.channels.findOne({
-            where: { id: channelId, businessId },
-        });
-        if (!channel)
-            throw new common_1.NotFoundException('Channel not found');
-        channel.memberIds = channel.memberIds.filter((id) => id !== memberId);
-        return this.channels.save(channel);
-    }
     async deleteChannel(businessId, channelId, role) {
-        if (!ADMIN_ROLES.includes(role)) {
-            throw new common_1.ForbiddenException('Only admins can delete channels.');
-        }
-        const channel = await this.channels.findOne({
-            where: { id: channelId, businessId },
-        });
+        if (!ADMIN_ROLES.includes(role))
+            throw new common_1.ForbiddenException();
+        const channel = await this.channels.findOne({ where: { id: channelId, businessId } });
         if (!channel)
-            throw new common_1.NotFoundException('Channel not found');
-        if (channel.isDefault) {
-            throw new common_1.ForbiddenException('Cannot delete default channels.');
-        }
+            throw new common_1.NotFoundException('Canal introuvable');
+        if (channel.isDefault)
+            throw new common_1.ForbiddenException('Canal par défaut non supprimable');
         await this.channels.delete(channelId);
         return { ok: true };
     }
@@ -130,94 +90,68 @@ exports.CommunicationService = CommunicationService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(channel_entity_1.ChannelEntity)),
     __param(1, (0, typeorm_1.InjectRepository)(message_entity_1.MessageEntity)),
+    __param(2, (0, typeorm_1.InjectRepository)(user_entity_1.UserEntity)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_2.Repository,
         typeorm_2.Repository])
 ], CommunicationService);
-const common_2 = require("@nestjs/common");
-const jwt_auth_guard_1 = require("../auth/jwt-auth.guard");
 let CommunicationController = class CommunicationController {
     constructor(service) {
         this.service = service;
     }
-    getChannels(req) {
-        return this.service.getChannels(req.user.businessId, req.user.sub);
+    async getAdminAll(req) {
+        console.log(`[Admin] Mariem (${req.user.email}) récupère tous les tickets`);
+        return this.service.getAllPlatformReclamations(req.user.role);
     }
-    createChannel(req, dto) {
-        return this.service.createChannel(req.user.businessId, req.user.sub, req.user.role, dto);
+    async getOrCreateReclamation(req) {
+        console.log(`[Client] ${req.user.email} ouvre son chat support`);
+        return this.service.getOrCreateReclamationChannel(req.user.businessId, req.user.sub);
     }
-    inviteMembers(req, channelId, memberIds) {
-        return this.service.inviteMembers(req.user.businessId, channelId, req.user.role, memberIds);
+    async getMessages(channelId, limit, before) {
+        return this.service.getMessages(channelId, limit ? parseInt(limit) : 50, before);
     }
-    removeMember(req, channelId, memberId) {
-        return this.service.removeMember(req.user.businessId, channelId, req.user.role, memberId);
-    }
-    deleteChannel(req, channelId) {
+    async deleteChannel(req, channelId) {
         return this.service.deleteChannel(req.user.businessId, channelId, req.user.role);
-    }
-    getMessages(req, channelId, limit, before) {
-        return this.service.getMessages(req.user.businessId, channelId, req.user.sub, limit ? parseInt(limit) : 50, before);
     }
 };
 exports.CommunicationController = CommunicationController;
 __decorate([
-    (0, common_2.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_2.Get)('channels'),
-    __param(0, (0, common_2.Req)()),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('admin/reclamations'),
+    __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", void 0)
-], CommunicationController.prototype, "getChannels", null);
+    __metadata("design:returntype", Promise)
+], CommunicationController.prototype, "getAdminAll", null);
 __decorate([
-    (0, common_2.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_2.Post)('channels'),
-    __param(0, (0, common_2.Req)()),
-    __param(1, (0, common_2.Body)()),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)('reclamation'),
+    __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
-    __metadata("design:returntype", void 0)
-], CommunicationController.prototype, "createChannel", null);
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], CommunicationController.prototype, "getOrCreateReclamation", null);
 __decorate([
-    (0, common_2.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_2.Post)('channels/:id/invite'),
-    __param(0, (0, common_2.Req)()),
-    __param(1, (0, common_2.Param)('id')),
-    __param(2, (0, common_2.Body)('memberIds')),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('channels/:id/messages'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Query)('limit')),
+    __param(2, (0, common_1.Query)('before')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, Array]),
-    __metadata("design:returntype", void 0)
-], CommunicationController.prototype, "inviteMembers", null);
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", Promise)
+], CommunicationController.prototype, "getMessages", null);
 __decorate([
-    (0, common_2.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_2.Delete)('channels/:id/members/:memberId'),
-    __param(0, (0, common_2.Req)()),
-    __param(1, (0, common_2.Param)('id')),
-    __param(2, (0, common_2.Param)('memberId')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String]),
-    __metadata("design:returntype", void 0)
-], CommunicationController.prototype, "removeMember", null);
-__decorate([
-    (0, common_2.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_2.Delete)('channels/:id'),
-    __param(0, (0, common_2.Req)()),
-    __param(1, (0, common_2.Param)('id')),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Delete)('channels/:id'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, String]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], CommunicationController.prototype, "deleteChannel", null);
-__decorate([
-    (0, common_2.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    (0, common_2.Get)('channels/:id/messages'),
-    __param(0, (0, common_2.Req)()),
-    __param(1, (0, common_2.Param)('id')),
-    __param(2, (0, common_2.Query)('limit')),
-    __param(3, (0, common_2.Query)('before')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String]),
-    __metadata("design:returntype", void 0)
-], CommunicationController.prototype, "getMessages", null);
 exports.CommunicationController = CommunicationController = __decorate([
-    (0, common_2.Controller)('communication'),
+    (0, common_1.Controller)('communication'),
     __metadata("design:paramtypes", [CommunicationService])
 ], CommunicationController);
 //# sourceMappingURL=communication.service-controller.js.map
