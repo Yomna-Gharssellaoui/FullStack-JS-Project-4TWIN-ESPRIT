@@ -517,6 +517,7 @@ export function Communication() {
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [newReclamations, setNewReclamations] = useState<Array<{ channelId: string; name?: string; from?: any }>>([]);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -529,6 +530,11 @@ export function Communication() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // If current user is an admin, show the Teams (admin) tab by default
+  useEffect(() => {
+    if (isAdmin) setActiveNav('teams');
+  }, [isAdmin]);
 
   // Call
   const [inCall, setInCall] = useState(false);
@@ -552,8 +558,20 @@ export function Communication() {
     const token = localStorage.getItem('access_token');
     if (!token) return;
     const socket = io(`${SOCKET_URL}/communication`, { auth: { token }, transports: ['websocket'] });
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
+
+    socket.on('connect', () => { console.info('socket connected'); setConnected(true); });
+
+    // reclamation:new — always listen, use up-to-date isAdmin/user values
+    socket.on('reclamation:new', (data: any) => {
+      console.info('reclamation:new received', data, { role: user?.role, isAdmin });
+      if (!isAdmin) return;
+      setNewReclamations(prev => {
+        if (prev.find(p => p.channelId === data.channelId)) return prev;
+        return [...prev, { channelId: data.channelId, name: data.name, from: data.from }];
+      });
+    });
+
+    socket.on('disconnect', () => { console.info('socket disconnected'); setConnected(false); });
     socket.on('online:list', (ids: string[]) => setOnlineIds(ids));
     socket.on('user:online', ({ userId }: any) => setOnlineIds(p => [...new Set([...p, userId])]));
     socket.on('user:offline', ({ userId }: any) => setOnlineIds(p => p.filter(id => id !== userId)));
@@ -566,7 +584,6 @@ export function Communication() {
       const pc = mkPC(userId, userName, socket);
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
       socket.emit('webrtc:offer', { targetId: userId, callId: curCallId.current, offer });
-      // Track participant
       setMeetings(prev => prev.map(m => m.callId === curCallId.current
         ? { ...m, participants: [...new Set([...m.participants, userName])] } : m));
     });
@@ -583,9 +600,27 @@ export function Communication() {
       pcs.current.get(userId)?.close(); pcs.current.delete(userId);
       setPeers(p => { const n = new Map(p); n.delete(userId); return n; });
     });
+
     socketRef.current = socket;
     return () => { socket.disconnect(); };
-  }, []);
+  }, [isAdmin, user]);
+
+  const handleGoToReclamation = async (channelId: string) => {
+    // try find locally
+    let ch = channels.find(c => c.id === channelId);
+    if (!ch) {
+      // refresh channels
+      const res = await fetch(`${API_BASE}/communication/channels`, { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } });
+      const data = await res.json();
+      if (Array.isArray(data)) { setChannels(data); }
+      ch = (data || []).find((c: any) => c.id === channelId);
+    }
+    if (ch) {
+      joinChannel(ch);
+      setNewReclamations(prev => prev.filter(p => p.channelId !== channelId));
+      setActiveNav('chat');
+    }
+  };
 
   const mkPC = useCallback((userId: string, userName: string, socket: Socket) => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -746,6 +781,25 @@ export function Communication() {
       <div className="ms-root flex h-[calc(100vh-5rem)] rounded-xl overflow-hidden bg-white"
         style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1px solid #E1DFDD' }}>
 
+        {/* Reclamation notifications for admins */}
+        {isAdmin && newReclamations.length > 0 && (
+          <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 60 }}>
+            <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', padding: '10px 14px', borderRadius: 10, boxShadow: '0 6px 18px rgba(0,0,0,0.08)' }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div style={{ fontWeight: 700, color: '#7A4F01' }}>Nouvelle réclamation</div>
+                <div style={{ fontSize: 13, color: '#604400' }}>{newReclamations.length} nouvelle(s)</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {newReclamations.map(nr => (
+                    <button key={nr.channelId} onClick={() => handleGoToReclamation(nr.channelId)} style={{ background: '#7A4F01', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6 }}>
+                      Aller au canal
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Far-left nav */}
         <div className="w-14 flex flex-col items-center py-3 gap-1 border-r flex-shrink-0"
           style={{ background: '#6264A7', borderColor: 'rgba(255,255,255,0.1)' }}>
@@ -809,6 +863,11 @@ export function Communication() {
                   {ch.isDefault && (
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
                       style={{ background: 'rgba(98,100,167,0.1)', color: '#6264A7' }}>default</span>
+                  )}
+                  {/* Badge for new reclamation notifications */}
+                  {newReclamations.find(n => n.channelId === ch.id) && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                      style={{ background: '#FFEDD5', color: '#7C2D12', marginLeft: 8 }}>Nouvelle</span>
                   )}
                 </button>
               ))}
